@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Optional
 
-from blspy import G2Element
+from chia_rs import G2Element
 
 from stai.types.blockchain_format.pool_target import PoolTarget
 from stai.types.blockchain_format.proof_of_space import ProofOfSpace
@@ -24,6 +26,7 @@ class NewSignagePoint(Streamable):
     difficulty: uint64
     sub_slot_iters: uint64
     signage_point_index: uint8
+    peak_height: uint32
 
 
 @streamable
@@ -37,7 +40,6 @@ class DeclareProofOfSpace(Streamable):
     challenge_chain_sp_signature: G2Element
     reward_chain_sp_signature: G2Element
     farmer_puzzle_hash: bytes32
-    officialwallets_puzzle_hash: bytes32
     pool_target: Optional[PoolTarget]
     pool_signature: Optional[G2Element]
 
@@ -59,6 +61,7 @@ class FarmingInfo(Streamable):
     passed: uint32
     proofs: uint32
     total_plots: uint32
+    lookup_time: uint64
 
 
 @streamable

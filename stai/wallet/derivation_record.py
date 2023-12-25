@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 
-from blspy import G1Element
+from chia_rs import G1Element
 
 from stai.types.blockchain_format.sized_bytes import bytes32
 from stai.util.ints import uint32

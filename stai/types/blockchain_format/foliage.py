@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import List, Optional
 
-from blspy import G2Element
+from chia_rs import G2Element
 
 from stai.types.blockchain_format.coin import Coin
 from stai.types.blockchain_format.pool_target import PoolTarget
@@ -42,7 +44,6 @@ class FoliageBlockData(Streamable):
     pool_target: PoolTarget
     pool_signature: Optional[G2Element]  # Iff ProofOfSpace has a pool pk
     farmer_reward_puzzle_hash: bytes32
-    officialwallets_reward_puzzle_hash: bytes32
     extension_data: bytes32  # Used for future updates. Can be any 32 byte value initially
 
 

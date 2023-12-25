@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 import random
 import sqlite3
 from contextlib import closing
 from pathlib import Path
 from typing import List
 
-import aiosqlite
 import pytest
 
 from stai.cmds.db_validate_func import validate_v2
@@ -13,12 +14,11 @@ from stai.consensus.default_constants import DEFAULT_CONSTANTS
 from stai.consensus.multiprocess_validation import PreValidationResult
 from stai.full_node.block_store import BlockStore
 from stai.full_node.coin_store import CoinStore
-from stai.full_node.hint_store import HintStore
+from stai.simulator.block_tools import test_constants
 from stai.types.blockchain_format.sized_bytes import bytes32
 from stai.types.full_block import FullBlock
 from stai.util.db_wrapper import DBWrapper2
 from stai.util.ints import uint64
-from tests.setup_nodes import test_constants
 from tests.util.temp_file import TempFile
 
 
@@ -129,32 +129,25 @@ def test_db_validate_in_main_chain(invalid_in_chain: bool) -> None:
 
 
 async def make_db(db_file: Path, blocks: List[FullBlock]) -> None:
-    db_wrapper = DBWrapper2(await aiosqlite.connect(db_file), 2)
-    try:
-        await db_wrapper.add_connection(await aiosqlite.connect(db_file))
-
-        async with db_wrapper.write_db() as conn:
+    async with DBWrapper2.managed(database=db_file, reader_count=1, db_version=2) as db_wrapper:
+        async with db_wrapper.writer_maybe_transaction() as conn:
             # this is done by stai init normally
             await conn.execute("CREATE TABLE database_version(version int)")
             await conn.execute("INSERT INTO database_version VALUES (2)")
 
         block_store = await BlockStore.create(db_wrapper)
         coin_store = await CoinStore.create(db_wrapper)
-        hint_store = await HintStore.create(db_wrapper)
 
-        bc = await Blockchain.create(coin_store, block_store, test_constants, hint_store, Path("."), reserved_cores=0)
+        bc = await Blockchain.create(coin_store, block_store, test_constants, Path("."), reserved_cores=0)
 
         for block in blocks:
             results = PreValidationResult(None, uint64(1), None, False)
-            result, err, _ = await bc.receive_block(block, results)
+            result, err, _ = await bc.add_block(block, results)
             assert err is None
-    finally:
-        await db_wrapper.close()
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_db_validate_default_1000_blocks(default_1000_blocks: List[FullBlock]) -> None:
-
     with TempFile() as db_file:
         await make_db(db_file, default_1000_blocks)
 

@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 from typing import List, Optional
 
 from typing_extensions import Protocol
 
-from stai.types.blockchain_format.program import SerializedProgram
+from stai.types.blockchain_format.serialized_program import SerializedProgram
 from stai.types.blockchain_format.sized_bytes import bytes32
 from stai.util.ints import uint32
 

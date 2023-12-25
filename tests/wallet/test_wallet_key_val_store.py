@@ -1,25 +1,18 @@
-from pathlib import Path
-import aiosqlite
+from __future__ import annotations
+
 import pytest
 
 from stai.types.full_block import FullBlock
 from stai.types.header_block import HeaderBlock
-from stai.util.db_wrapper import DBWrapper
 from stai.wallet.key_val_store import KeyValStore
+from tests.util.db_connection import DBConnection
 
 
 class TestWalletKeyValStore:
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_store(self, bt):
-        db_filename = Path("wallet_kv_store_test.db")
-
-        if db_filename.exists():
-            db_filename.unlink()
-
-        db_connection = await aiosqlite.connect(db_filename)
-        db_wrapper = DBWrapper(db_connection)
-        store = await KeyValStore.create(db_wrapper)
-        try:
+        async with DBConnection(1) as db_wrapper:
+            store = await KeyValStore.create(db_wrapper)
             blocks = bt.get_consecutive_blocks(20)
             block: FullBlock = blocks[0]
             block_2: FullBlock = blocks[1]
@@ -44,7 +37,3 @@ class TestWalletKeyValStore:
             await store.set_object("a", block_2)
             with pytest.raises(Exception):
                 await store.get_object("a", HeaderBlock)
-
-        finally:
-            await db_connection.close()
-            db_filename.unlink()

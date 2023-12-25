@@ -1,4 +1,7 @@
-from blspy import AugSchemeMPL, G1Element
+from __future__ import annotations
+
+from chia_rs import AugSchemeMPL, G1Element
+
 from stai.util import cached_bls
 from stai.util.hash import std_hash
 from stai.util.lru_cache import LRUCache

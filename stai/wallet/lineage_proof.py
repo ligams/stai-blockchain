@@ -1,8 +1,10 @@
-from dataclasses import dataclass
-from typing import Optional, Any, List
+from __future__ import annotations
 
-from stai.types.blockchain_format.sized_bytes import bytes32
+from dataclasses import dataclass
+from typing import Any, List, Optional
+
 from stai.types.blockchain_format.program import Program
+from stai.types.blockchain_format.sized_bytes import bytes32
 from stai.util.ints import uint64
 from stai.util.streamable import Streamable, streamable
 

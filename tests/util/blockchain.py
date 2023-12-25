@@ -1,38 +1,35 @@
+from __future__ import annotations
+
+import contextlib
 import os
 import pickle
 from pathlib import Path
-from typing import List, Optional
-
-import aiosqlite
-import tempfile
+from typing import AsyncIterator, List, Optional, Tuple
 
 from stai.consensus.blockchain import Blockchain
 from stai.consensus.constants import ConsensusConstants
 from stai.full_node.block_store import BlockStore
 from stai.full_node.coin_store import CoinStore
-from stai.full_node.hint_store import HintStore
+from stai.simulator.block_tools import BlockTools
 from stai.types.full_block import FullBlock
-from stai.util.db_wrapper import DBWrapper2
+from stai.util.db_wrapper import DBWrapper2, generate_in_memory_db_uri
 from stai.util.default_root import DEFAULT_ROOT_PATH
-from stai.util.path import mkdir
-from tests.block_tools import BlockTools
 
 
-async def create_blockchain(constants: ConsensusConstants, db_version: int):
-    db_path = Path(tempfile.NamedTemporaryFile().name)
-
-    if db_path.exists():
-        db_path.unlink()
-    connection = await aiosqlite.connect(db_path)
-    wrapper = DBWrapper2(connection, db_version)
-    await wrapper.add_connection(await aiosqlite.connect(db_path))
-
-    coin_store = await CoinStore.create(wrapper)
-    store = await BlockStore.create(wrapper)
-    hint_store = await HintStore.create(wrapper)
-    bc1 = await Blockchain.create(coin_store, store, constants, hint_store, Path("."), 2)
-    assert bc1.get_peak() is None
-    return bc1, wrapper, db_path
+@contextlib.asynccontextmanager
+async def create_blockchain(
+    constants: ConsensusConstants, db_version: int
+) -> AsyncIterator[Tuple[Blockchain, DBWrapper2]]:
+    db_uri = generate_in_memory_db_uri()
+    async with DBWrapper2.managed(database=db_uri, uri=True, reader_count=1, db_version=db_version) as wrapper:
+        coin_store = await CoinStore.create(wrapper)
+        store = await BlockStore.create(wrapper)
+        bc1 = await Blockchain.create(coin_store, store, constants, Path("."), 2, single_threaded=True)
+        try:
+            assert bc1.get_peak() is None
+            yield bc1, wrapper
+        finally:
+            bc1.shut_down()
 
 
 def persistent_blocks(
@@ -40,14 +37,17 @@ def persistent_blocks(
     db_name: str,
     bt: BlockTools,
     seed: bytes = b"",
-    empty_sub_slots=0,
+    empty_sub_slots: int = 0,
+    *,
     normalized_to_identity_cc_eos: bool = False,
     normalized_to_identity_icc_eos: bool = False,
     normalized_to_identity_cc_sp: bool = False,
     normalized_to_identity_cc_ip: bool = False,
-    block_list_input: List[FullBlock] = None,
+    block_list_input: Optional[List[FullBlock]] = None,
     time_per_block: Optional[float] = None,
-):
+    dummy_block_references: bool = False,
+    include_transactions: bool = False,
+) -> List[FullBlock]:
     # try loading from disc, if not create new blocks.db file
     # TODO hash fixtures.py and blocktool.py, add to path, delete if the files changed
     if block_list_input is None:
@@ -59,7 +59,7 @@ def persistent_blocks(
     if ci is not None and not file_path.exists():
         raise Exception(f"Running in CI and expected path not found: {file_path!r}")
 
-    mkdir(block_path_dir)
+    block_path_dir.mkdir(parents=True, exist_ok=True)
 
     if file_path.exists():
         print(f"File found at: {file_path}")
@@ -86,10 +86,12 @@ def persistent_blocks(
         bt,
         block_list_input,
         time_per_block,
-        normalized_to_identity_cc_eos,
-        normalized_to_identity_icc_eos,
-        normalized_to_identity_cc_sp,
-        normalized_to_identity_cc_ip,
+        normalized_to_identity_cc_eos=normalized_to_identity_cc_eos,
+        normalized_to_identity_icc_eos=normalized_to_identity_icc_eos,
+        normalized_to_identity_cc_sp=normalized_to_identity_cc_sp,
+        normalized_to_identity_cc_ip=normalized_to_identity_cc_ip,
+        dummy_block_references=dummy_block_references,
+        include_transactions=include_transactions,
     )
 
 
@@ -101,11 +103,14 @@ def new_test_db(
     bt: BlockTools,
     block_list_input: List[FullBlock],
     time_per_block: Optional[float],
+    *,
     normalized_to_identity_cc_eos: bool = False,  # CC_EOS,
     normalized_to_identity_icc_eos: bool = False,  # ICC_EOS
     normalized_to_identity_cc_sp: bool = False,  # CC_SP,
     normalized_to_identity_cc_ip: bool = False,  # CC_IP
-):
+    dummy_block_references: bool = False,
+    include_transactions: bool = False,
+) -> List[FullBlock]:
     print(f"create {path} with {num_of_blocks} blocks with ")
     blocks: List[FullBlock] = bt.get_consecutive_blocks(
         num_of_blocks,
@@ -117,6 +122,8 @@ def new_test_db(
         normalized_to_identity_icc_eos=normalized_to_identity_icc_eos,
         normalized_to_identity_cc_sp=normalized_to_identity_cc_sp,
         normalized_to_identity_cc_ip=normalized_to_identity_cc_ip,
+        dummy_block_references=dummy_block_references,
+        include_transactions=include_transactions,
     )
     block_bytes_list: List[bytes] = []
     for block in blocks:

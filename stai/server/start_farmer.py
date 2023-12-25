@@ -1,17 +1,22 @@
+from __future__ import annotations
+
 import pathlib
-from typing import Dict, Optional
+import sys
+from typing import Any, Dict, Optional
 
 from stai.consensus.constants import ConsensusConstants
-from stai.consensus.default_constants import DEFAULT_CONSTANTS
+from stai.consensus.default_constants import DEFAULT_CONSTANTS, update_testnet_overrides
 from stai.farmer.farmer import Farmer
 from stai.farmer.farmer_api import FarmerAPI
 from stai.rpc.farmer_rpc_api import FarmerRpcApi
 from stai.server.outbound_message import NodeType
-from stai.server.start_service import run_service
-from stai.types.peer_info import PeerInfo
-from stai.util.config import load_config_cli
+from stai.server.start_service import RpcInfo, Service, async_run
+from stai.types.aliases import FarmerService
+from stai.util.stai_logging import initialize_service_logging
+from stai.util.config import get_unresolved_peer_infos, load_config, load_config_cli
 from stai.util.default_root import DEFAULT_ROOT_PATH
 from stai.util.keychain import Keychain
+from stai.util.misc import SignalHandlers
 
 # See: https://bugs.python.org/issue29288
 "".encode("idna")
@@ -19,49 +24,63 @@ from stai.util.keychain import Keychain
 SERVICE_NAME = "farmer"
 
 
-def service_kwargs_for_farmer(
+def create_farmer_service(
     root_path: pathlib.Path,
-    config: Dict,
-    config_pool: Dict,
+    config: Dict[str, Any],
+    config_pool: Dict[str, Any],
     consensus_constants: ConsensusConstants,
     keychain: Optional[Keychain] = None,
-) -> Dict:
+    connect_to_daemon: bool = True,
+) -> FarmerService:
+    service_config = config[SERVICE_NAME]
 
-    connect_peers = []
-    fnp = config.get("full_node_peer")
-    if fnp is not None:
-        connect_peers.append(PeerInfo(fnp["host"], fnp["port"]))
-
-    overrides = config["network_overrides"]["constants"][config["selected_network"]]
+    network_id = service_config["selected_network"]
+    overrides = service_config["network_overrides"]["constants"][network_id]
+    update_testnet_overrides(network_id, overrides)
     updated_constants = consensus_constants.replace_str_to_bytes(**overrides)
 
-    farmer = Farmer(root_path, config, config_pool, consensus_constants=updated_constants, local_keychain=keychain)
+    farmer = Farmer(
+        root_path, service_config, config_pool, consensus_constants=updated_constants, local_keychain=keychain
+    )
     peer_api = FarmerAPI(farmer)
-    network_id = config["selected_network"]
-    kwargs = dict(
+    rpc_info: Optional[RpcInfo[FarmerRpcApi]] = None
+    if service_config["start_rpc_server"]:
+        rpc_info = (FarmerRpcApi, service_config["rpc_port"])
+    return Service(
         root_path=root_path,
+        config=config,
         node=farmer,
         peer_api=peer_api,
         node_type=NodeType.FARMER,
-        advertised_port=config["port"],
+        advertised_port=service_config["port"],
         service_name=SERVICE_NAME,
-        server_listen_ports=[config["port"]],
-        connect_peers=connect_peers,
-        auth_connect_peers=False,
+        connect_peers=get_unresolved_peer_infos(service_config, NodeType.FULL_NODE),
         on_connect_callback=farmer.on_connect,
         network_id=network_id,
+        rpc_info=rpc_info,
+        connect_to_daemon=connect_to_daemon,
     )
-    if config["start_rpc_server"]:
-        kwargs["rpc_info"] = (FarmerRpcApi, config["rpc_port"])
-    return kwargs
 
 
-def main() -> None:
-    config = load_config_cli(DEFAULT_ROOT_PATH, "config.yaml", SERVICE_NAME)
+async def async_main() -> int:
+    # TODO: refactor to avoid the double load
+    config = load_config(DEFAULT_ROOT_PATH, "config.yaml")
+    service_config = load_config_cli(DEFAULT_ROOT_PATH, "config.yaml", SERVICE_NAME)
+    config[SERVICE_NAME] = service_config
     config_pool = load_config_cli(DEFAULT_ROOT_PATH, "config.yaml", "pool")
-    kwargs = service_kwargs_for_farmer(DEFAULT_ROOT_PATH, config, config_pool, DEFAULT_CONSTANTS)
-    return run_service(**kwargs)
+    config["pool"] = config_pool
+    initialize_service_logging(service_name=SERVICE_NAME, config=config)
+    service = create_farmer_service(DEFAULT_ROOT_PATH, config, config_pool, DEFAULT_CONSTANTS)
+    async with SignalHandlers.manage() as signal_handlers:
+        await service.setup_process_global_state(signal_handlers=signal_handlers)
+        await service.run()
+
+    return 0
+
+
+def main() -> int:
+    return async_run(async_main())
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

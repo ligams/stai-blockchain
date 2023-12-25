@@ -1,17 +1,24 @@
+from __future__ import annotations
+
+import random
+
 import pytest
 
 from stai.plot_sync.exceptions import AlreadyStartedError, InvalidConnectionTypeError
 from stai.plot_sync.sender import ExpectedResponse, Sender
 from stai.plot_sync.util import Constants
+from stai.plotting.util import HarvestingMode
 from stai.protocols.harvester_protocol import PlotSyncIdentifier, PlotSyncResponse
-from stai.server.ws_connection import NodeType, ProtocolMessageTypes
+from stai.protocols.protocol_message_types import ProtocolMessageTypes
+from stai.server.outbound_message import NodeType
+from stai.simulator.block_tools import BlockTools
+from stai.types.blockchain_format.sized_bytes import bytes32
 from stai.util.ints import int16, uint64
-from tests.block_tools import BlockTools
 from tests.plot_sync.util import get_dummy_connection, plot_sync_identifier
 
 
 def test_default_values(bt: BlockTools) -> None:
-    sender = Sender(bt.plot_manager)
+    sender = Sender(bt.plot_manager, HarvestingMode.CPU)
     assert sender._plot_manager == bt.plot_manager
     assert sender._connection is None
     assert sender._sync_id == uint64(0)
@@ -21,11 +28,12 @@ def test_default_values(bt: BlockTools) -> None:
     assert not sender._stop_requested
     assert sender._task is None
     assert sender._response is None
+    assert sender._harvesting_mode == HarvestingMode.CPU
 
 
-def test_set_connection_values(bt: BlockTools) -> None:
-    farmer_connection = get_dummy_connection(NodeType.FARMER)
-    sender = Sender(bt.plot_manager)
+def test_set_connection_values(bt: BlockTools, seeded_random: random.Random) -> None:
+    farmer_connection = get_dummy_connection(NodeType.FARMER, bytes32.random(seeded_random))
+    sender = Sender(bt.plot_manager, HarvestingMode.CPU)
     # Test invalid NodeType values
     for connection_type in NodeType:
         if connection_type != NodeType.FARMER:
@@ -40,9 +48,9 @@ def test_set_connection_values(bt: BlockTools) -> None:
     assert sender._connection == farmer_connection  # type: ignore[comparison-overlap]
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_start_stop_send_task(bt: BlockTools) -> None:
-    sender = Sender(bt.plot_manager)
+    sender = Sender(bt.plot_manager, HarvestingMode.CPU)
     # Make sure starting/restarting works
     for _ in range(2):
         assert sender._task is None
@@ -59,7 +67,7 @@ async def test_start_stop_send_task(bt: BlockTools) -> None:
 
 
 def test_set_response(bt: BlockTools) -> None:
-    sender = Sender(bt.plot_manager)
+    sender = Sender(bt.plot_manager, HarvestingMode.CPU)
 
     def new_expected_response(sync_id: int, message_id: int, message_type: ProtocolMessageTypes) -> ExpectedResponse:
         return ExpectedResponse(message_type, plot_sync_identifier(uint64(sync_id), uint64(message_id)))

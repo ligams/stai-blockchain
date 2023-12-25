@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import dataclasses
 import logging
 from typing import Any
@@ -42,7 +44,6 @@ class ConsensusConstants:
     AGG_SIG_ME_ADDITIONAL_DATA: bytes
     GENESIS_PRE_FARM_POOL_PUZZLE_HASH: bytes32  # The block at height must pay out to this pool puzzle hash
     GENESIS_PRE_FARM_FARMER_PUZZLE_HASH: bytes32  # The block at height must pay out to this farmer puzzle hash
-    GENESIS_PRE_FARM_OFFICIALWALLETS_PUZZLE_HASH: bytes32  # The block at height must pay out to this Community puzzle hash
     MAX_VDF_WITNESS_SIZE: int  # The maximum number of classgroup elements within an n-wesolowski proof
     # Size of mempool = 10x the size of block
     MEMPOOL_BLOCK_BUFFER: int
@@ -62,10 +63,12 @@ class ConsensusConstants:
     MAX_GENERATOR_REF_LIST_SIZE: uint32
     POOL_SUB_SLOT_ITERS: uint64
 
-    def replace(self, **changes: object) -> "ConsensusConstants":
-        return dataclasses.replace(self, **changes)
+    # the plot filter adjustment heights
+    PLOT_FILTER_128_HEIGHT: uint32
+    PLOT_FILTER_64_HEIGHT: uint32
+    PLOT_FILTER_32_HEIGHT: uint32
 
-    def replace_str_to_bytes(self, **changes: Any) -> "ConsensusConstants":
+    def replace_str_to_bytes(self, **changes: Any) -> ConsensusConstants:
         """
         Overrides str (hex) values with bytes.
         """
@@ -73,11 +76,14 @@ class ConsensusConstants:
         filtered_changes = {}
         for k, v in changes.items():
             if not hasattr(self, k):
-                log.warn(f'invalid key in network configuration (config.yaml) "{k}". Ignoring')
+                # NETWORK_TYPE used to be present in default config, but has been removed
+                if k not in ["NETWORK_TYPE"]:
+                    log.warning(f'invalid key in network configuration (config.yaml) "{k}". Ignoring')
                 continue
             if isinstance(v, str):
                 filtered_changes[k] = hexstr_to_bytes(v)
             else:
                 filtered_changes[k] = v
 
-        return dataclasses.replace(self, **filtered_changes)
+        # TODO: this is too magical here and is really only used for configuration unmarshalling
+        return dataclasses.replace(self, **filtered_changes)  # type: ignore[arg-type]

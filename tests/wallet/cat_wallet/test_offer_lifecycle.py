@@ -1,27 +1,32 @@
-from typing import Any, Dict, Optional, List
+from __future__ import annotations
+
+from dataclasses import replace
+from typing import Any, Dict, List, Optional
 
 import pytest
-from blspy import G2Element
+from chia_rs import G2Element
 
+from stai.clvm.spend_sim import sim_and_client
 from stai.types.announcement import Announcement
 from stai.types.blockchain_format.coin import Coin
 from stai.types.blockchain_format.program import Program
+from stai.types.blockchain_format.serialized_program import SerializedProgram
 from stai.types.blockchain_format.sized_bytes import bytes32
-from stai.types.coin_spend import CoinSpend
+from stai.types.coin_spend import CoinSpend, make_spend
 from stai.types.mempool_inclusion_status import MempoolInclusionStatus
 from stai.types.spend_bundle import SpendBundle
 from stai.util.ints import uint64
 from stai.wallet.cat_wallet.cat_utils import (
     CAT_MOD,
-    construct_cat_puzzle,
     SpendableCAT,
+    construct_cat_puzzle,
     unsigned_spend_bundle_for_spendable_cats,
 )
+from stai.wallet.conditions import ConditionValidTimes
 from stai.wallet.outer_puzzles import AssetType
-from stai.wallet.puzzle_drivers import PuzzleInfo
 from stai.wallet.payment import Payment
-from stai.wallet.trading.offer import Offer, NotarizedPayment
-from tests.clvm.benchmark_costs import cost_of_spend_bundle
+from stai.wallet.puzzle_drivers import PuzzleInfo
+from stai.wallet.trading.offer import OFFER_MOD, NotarizedPayment, Offer
 
 acs = Program.to(1)
 acs_ph = acs.get_tree_hash()
@@ -33,7 +38,7 @@ def str_to_tail(tail_str: str) -> Program:
 
 
 def str_to_tail_hash(tail_str: str) -> bytes32:
-    return Program.to([3, [], [1, tail_str], []]).get_tree_hash()
+    return str_to_tail(tail_str).get_tree_hash()
 
 
 def str_to_cat_hash(tail_str: str) -> bytes32:
@@ -47,7 +52,7 @@ async def generate_coins(
     requested_coins: Dict[Optional[str], List[uint64]],
 ) -> Dict[Optional[str], List[Coin]]:
     await sim.farm_block(acs_ph)
-    parent_coin: Coin = [cr.coin for cr in await (sim_client.get_coin_records_by_puzzle_hash(acs_ph))][0]
+    parent_coin: Coin = [cr.coin for cr in await sim_client.get_coin_records_by_puzzle_hash(acs_ph)][0]
 
     # We need to gather a list of initial coins to create as well as spends that do the eve spend for every CAT
     payments: List[Payment] = []
@@ -56,15 +61,17 @@ async def generate_coins(
         for amount in amounts:
             if tail_str:
                 tail: Program = str_to_tail(tail_str)  # Making a fake but unique TAIL
-                cat_puzzle: Program = construct_cat_puzzle(CAT_MOD, tail.get_tree_hash(), acs)
-                payments.append(Payment(cat_puzzle.get_tree_hash(), amount, []))
+                tail_hash = tail.get_tree_hash()
+                cat_puzzle: Program = construct_cat_puzzle(CAT_MOD, tail_hash, acs)
+                cat_puzzle_hash = cat_puzzle.get_tree_hash()
+                payments.append(Payment(cat_puzzle_hash, amount))
                 cat_bundles.append(
                     unsigned_spend_bundle_for_spendable_cats(
                         CAT_MOD,
                         [
                             SpendableCAT(
-                                Coin(parent_coin.name(), cat_puzzle.get_tree_hash(), amount),
-                                tail.get_tree_hash(),
+                                Coin(parent_coin.name(), cat_puzzle_hash, amount),
+                                tail_hash,
                                 acs,
                                 Program.to([[51, acs_ph, amount], [51, 0, -113, tail, []]]),
                             )
@@ -72,12 +79,12 @@ async def generate_coins(
                     )
                 )
             else:
-                payments.append(Payment(acs_ph, amount, []))
+                payments.append(Payment(acs_ph, amount))
 
     # This bundle creates all of the initial coins
     parent_bundle = SpendBundle(
         [
-            CoinSpend(
+            make_spend(
                 parent_coin,
                 acs,
                 Program.to([[51, p.puzzle_hash, p.amount] for p in payments]),
@@ -94,10 +101,10 @@ async def generate_coins(
     coin_dict: Dict[Optional[str], List[Coin]] = {}
     for tail_str, _ in requested_coins.items():
         if tail_str:
-            tail_hash: bytes32 = str_to_tail_hash(tail_str)
+            tail_hash = str_to_tail_hash(tail_str)
             cat_ph: bytes32 = construct_cat_puzzle(CAT_MOD, tail_hash, acs).get_tree_hash()
             coin_dict[tail_str] = [
-                cr.coin for cr in await (sim_client.get_coin_records_by_puzzle_hash(cat_ph, include_spent_coins=False))
+                cr.coin for cr in await sim_client.get_coin_records_by_puzzle_hash(cat_ph, include_spent_coins=False)
             ]
         else:
             coin_dict[None] = list(
@@ -105,7 +112,7 @@ async def generate_coins(
                     lambda c: c.amount < 250000000000,
                     [
                         cr.coin
-                        for cr in await (sim_client.get_coin_records_by_puzzle_hash(acs_ph, include_spent_coins=False))
+                        for cr in await sim_client.get_coin_records_by_puzzle_hash(acs_ph, include_spent_coins=False)
                     ],
                 )
             )
@@ -133,12 +140,12 @@ def generate_secure_bundle(
     if tail_str is None:
         bundle = SpendBundle(
             [
-                CoinSpend(
+                make_spend(
                     selected_coins[0],
                     acs,
                     Program.to(inner_solution),
                 ),
-                *[CoinSpend(c, acs, Program.to([])) for c in non_primaries],
+                *[make_spend(c, acs, Program.to([])) for c in non_primaries],
             ],
             G2Element(),
         )
@@ -163,13 +170,9 @@ def generate_secure_bundle(
 
 
 class TestOfferLifecycle:
-    cost: Dict[str, int] = {}
-
-    @pytest.mark.asyncio()
-    async def test_complex_offer(self, setup_sim):
-        sim, sim_client = setup_sim
-
-        try:
+    @pytest.mark.anyio()
+    async def test_complex_offer(self, cost_logger):
+        async with sim_and_client() as (sim, sim_client):
             coins_needed: Dict[Optional[str], List[int]] = {
                 None: [500, 400, 300],
                 "red": [250, 100],
@@ -289,6 +292,7 @@ class TestOfferLifecycle:
                 },
                 {"stai": 900, str_to_tail_hash("red").hex(): 350},
                 driver_dict_as_infos,
+                ConditionValidTimes(),
             )
             assert new_offer.get_pending_amounts() == {
                 "stai": 1200,
@@ -296,6 +300,32 @@ class TestOfferLifecycle:
                 str_to_tail_hash("blue").hex(): 3000,
             }
             assert new_offer.is_valid()
+
+            # Test preventing TAIL from running during estaiange
+            blue_cat_puz: Program = construct_cat_puzzle(CAT_MOD, str_to_tail_hash("blue"), OFFER_MOD)
+            blue_spend: CoinSpend = make_spend(
+                Coin(bytes32(32), blue_cat_puz.get_tree_hash(), uint64(0)),
+                blue_cat_puz,
+                Program.to([[bytes32(32), [bytes32(32), 200, ["hey there"]]]]),
+            )
+            new_spends_list: List[CoinSpend] = [blue_spend, *new_offer.to_spend_bundle().coin_spends]
+            tail_offer: Offer = Offer.from_spend_bundle(SpendBundle(new_spends_list, G2Element()))
+            valid_spend = tail_offer.to_valid_spend(bytes32(32))
+            real_blue_spend = [spend for spend in valid_spend.coin_spends if b"hey there" in bytes(spend)][0]
+            real_blue_spend_replaced = replace(
+                real_blue_spend,
+                solution=SerializedProgram.from_program(
+                    real_blue_spend.solution.to_program().replace(
+                        ffrfrf=Program.to(-113), ffrfrr=Program.to([str_to_tail("blue"), []])
+                    )
+                ),
+            )
+            valid_spend = SpendBundle(
+                [real_blue_spend_replaced, *[spend for spend in valid_spend.coin_spends if spend != real_blue_spend]],
+                G2Element(),
+            )
+            with pytest.raises(ValueError, match="clvm raise"):
+                valid_spend.additions()
 
             # Test (de)serialization
             assert Offer.from_bytes(bytes(new_offer)) == new_offer
@@ -306,16 +336,7 @@ class TestOfferLifecycle:
             # Make sure we can actually spend the offer once it's valid
             arbitrage_ph: bytes32 = Program.to([3, [], [], 1]).get_tree_hash()
             offer_bundle: SpendBundle = new_offer.to_valid_spend(arbitrage_ph)
-            result = await sim_client.push_tx(offer_bundle)
+
+            result = await sim_client.push_tx(cost_logger.add_cost("Complex Offer", offer_bundle))
             assert result == (MempoolInclusionStatus.SUCCESS, None)
-            self.cost["complex offer"] = cost_of_spend_bundle(offer_bundle)
             await sim.farm_block()
-        finally:
-            await sim.close()
-
-    def test_cost(self):
-        import json
-        import logging
-
-        log = logging.getLogger(__name__)
-        log.warning(json.dumps(self.cost))

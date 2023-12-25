@@ -1,9 +1,18 @@
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Optional
 
 import click
 
-from stai.util.config import lock_and_load_config, save_config, str2bool
+from stai.server.outbound_message import NodeType
+from stai.util.config import (
+    load_defaults_for_missing_services,
+    lock_and_load_config,
+    save_config,
+    set_peer_info,
+    str2bool,
+)
 
 
 def configure(
@@ -22,8 +31,11 @@ def configure(
     crawler_minimum_version_count: Optional[int],
     seeder_domain_name: str,
     seeder_nameserver: str,
-):
-    with lock_and_load_config(root_path, "config.yaml") as config:
+) -> None:
+    config_yaml = "config.yaml"
+    with lock_and_load_config(root_path, config_yaml, fill_missing_services=True) as config:
+        config.update(load_defaults_for_missing_services(config=config, config_name=config_yaml))
+
         change_made = False
         if set_node_introducer:
             try:
@@ -46,10 +58,7 @@ def configure(
                         ":".join(set_farmer_peer.split(":")[:-1]),
                         set_farmer_peer.split(":")[-1],
                     )
-                    config["full_node"]["farmer_peer"]["host"] = host
-                    config["full_node"]["farmer_peer"]["port"] = int(port)
-                    config["harvester"]["farmer_peer"]["host"] = host
-                    config["harvester"]["farmer_peer"]["port"] = int(port)
+                    set_peer_info(config["harvester"], peer_type=NodeType.FARMER, peer_host=host, peer_port=int(port))
                     print("Farmer peer updated, make sure your harvester has the proper cert installed")
                     change_made = True
             except ValueError:
@@ -57,16 +66,15 @@ def configure(
         if set_fullnode_port:
             config["full_node"]["port"] = int(set_fullnode_port)
             config["full_node"]["introducer_peer"]["port"] = int(set_fullnode_port)
-            config["farmer"]["full_node_peer"]["port"] = int(set_fullnode_port)
-            config["timelord"]["full_node_peer"]["port"] = int(set_fullnode_port)
-            config["wallet"]["full_node_peer"]["port"] = int(set_fullnode_port)
+            set_peer_info(config["farmer"], peer_type=NodeType.FULL_NODE, peer_port=int(set_fullnode_port))
+            set_peer_info(config["timelord"], peer_type=NodeType.FULL_NODE, peer_port=int(set_fullnode_port))
+            set_peer_info(config["wallet"], peer_type=NodeType.FULL_NODE, peer_port=int(set_fullnode_port))
             config["wallet"]["introducer_peer"]["port"] = int(set_fullnode_port)
             config["introducer"]["port"] = int(set_fullnode_port)
             print("Default full node port updated")
             change_made = True
         if set_harvester_port:
             config["harvester"]["port"] = int(set_harvester_port)
-            config["farmer"]["harvester_peer"]["port"] = int(set_harvester_port)
             print("Default harvester port updated")
             change_made = True
         if set_log_level:
@@ -95,16 +103,22 @@ def configure(
         if testnet:
             if testnet == "true" or testnet == "t":
                 print("Setting Testnet")
-                testnet_port = "51999"
-                testnet_introducer = "introducer-testnet10.stainetwork.org"
-                testnet_dns_introducer = "dns-introducer-testnet10.stainetwork.org"
-                bootstrap_peers = ["testnet10-node.stainetwork.org"]
+                testnet_port = "58444"
+                testnet_introducer = "introducer-testnet10.stai.net"
+                testnet_dns_introducer = "dns-introducer-testnet10.stai.net"
+                bootstrap_peers = ["testnet10-node.stai.net"]
                 testnet = "testnet10"
                 config["full_node"]["port"] = int(testnet_port)
+                if config["full_node"]["introducer_peer"] is None:
+                    config["full_node"]["introducer_peer"] = {}
+                assert config["full_node"]["introducer_peer"] is not None  # mypy
+                if config["wallet"]["introducer_peer"] is None:
+                    config["wallet"]["introducer_peer"] = {}
+                assert config["wallet"]["introducer_peer"] is not None  # mypy
                 config["full_node"]["introducer_peer"]["port"] = int(testnet_port)
-                config["farmer"]["full_node_peer"]["port"] = int(testnet_port)
-                config["timelord"]["full_node_peer"]["port"] = int(testnet_port)
-                config["wallet"]["full_node_peer"]["port"] = int(testnet_port)
+                set_peer_info(config["farmer"], peer_type=NodeType.FULL_NODE, peer_port=int(testnet_port))
+                set_peer_info(config["timelord"], peer_type=NodeType.FULL_NODE, peer_port=int(testnet_port))
+                set_peer_info(config["wallet"], peer_type=NodeType.FULL_NODE, peer_port=int(testnet_port))
                 config["wallet"]["introducer_peer"]["port"] = int(testnet_port)
                 config["introducer"]["port"] = int(testnet_port)
                 config["full_node"]["introducer_peer"]["host"] = testnet_introducer
@@ -120,6 +134,7 @@ def configure(
                 config["ui"]["selected_network"] = testnet
                 config["introducer"]["selected_network"] = testnet
                 config["wallet"]["selected_network"] = testnet
+                config["data_layer"]["selected_network"] = testnet
 
                 if "seeder" in config:
                     config["seeder"]["port"] = int(testnet_port)
@@ -132,21 +147,20 @@ def configure(
 
             elif testnet == "false" or testnet == "f":
                 print("Setting Mainnet")
-                mainnet_port = "1999"
-                mainnet_introducer = "introducer.staicoin.com"
-                mainnet_dns_introducer = "dns-introducer.staicoin.com"
-                mainnet_dns_introducer_2 = "introducer.staicoin.com"
-                bootstrap_peers = ["node.stainetwork.org"]
+                mainnet_port = "8444"
+                mainnet_introducer = "introducer.stai.net"
+                mainnet_dns_introducer = "dns-introducer.stai.net"
+                bootstrap_peers = ["node.stai.net"]
                 net = "mainnet"
                 config["full_node"]["port"] = int(mainnet_port)
                 config["full_node"]["introducer_peer"]["port"] = int(mainnet_port)
-                config["farmer"]["full_node_peer"]["port"] = int(mainnet_port)
-                config["timelord"]["full_node_peer"]["port"] = int(mainnet_port)
-                config["wallet"]["full_node_peer"]["port"] = int(mainnet_port)
+                set_peer_info(config["farmer"], peer_type=NodeType.FULL_NODE, peer_port=int(mainnet_port))
+                set_peer_info(config["timelord"], peer_type=NodeType.FULL_NODE, peer_port=int(mainnet_port))
+                set_peer_info(config["wallet"], peer_type=NodeType.FULL_NODE, peer_port=int(mainnet_port))
                 config["wallet"]["introducer_peer"]["port"] = int(mainnet_port)
                 config["introducer"]["port"] = int(mainnet_port)
                 config["full_node"]["introducer_peer"]["host"] = mainnet_introducer
-                config["full_node"]["dns_servers"] = [mainnet_dns_introducer, mainnet_dns_introducer_2]
+                config["full_node"]["dns_servers"] = [mainnet_dns_introducer]
                 config["wallet"]["introducer_peer"]["host"] = mainnet_introducer
                 config["wallet"]["dns_servers"] = [mainnet_dns_introducer]
                 config["selected_network"] = net
@@ -158,6 +172,7 @@ def configure(
                 config["ui"]["selected_network"] = net
                 config["introducer"]["selected_network"] = net
                 config["wallet"]["selected_network"] = net
+                config["data_layer"]["selected_network"] = net
 
                 if "seeder" in config:
                     config["seeder"]["port"] = int(mainnet_port)
@@ -195,7 +210,7 @@ def configure(
             save_config(root_path, "config.yaml", config)
 
 
-@click.command("configure", short_help="Modify configuration")
+@click.command("configure", help="Modify configuration", no_args_is_help=True)
 @click.option(
     "--testnet",
     "-t",
@@ -257,22 +272,22 @@ def configure(
 )
 @click.pass_context
 def configure_cmd(
-    ctx,
-    set_farmer_peer,
-    set_node_introducer,
-    set_fullnode_port,
-    set_harvester_port,
-    set_log_level,
-    enable_upnp,
-    set_outbound_peer_count,
-    set_peer_count,
-    testnet,
-    set_peer_connect_timeout,
-    crawler_db_path,
-    crawler_minimum_version_count,
-    seeder_domain_name,
-    seeder_nameserver,
-):
+    ctx: click.Context,
+    set_farmer_peer: str,
+    set_node_introducer: str,
+    set_fullnode_port: str,
+    set_harvester_port: str,
+    set_log_level: str,
+    enable_upnp: str,
+    set_outbound_peer_count: str,
+    set_peer_count: str,
+    testnet: str,
+    set_peer_connect_timeout: str,
+    crawler_db_path: str,
+    crawler_minimum_version_count: int,
+    seeder_domain_name: str,
+    seeder_nameserver: str,
+) -> None:
     configure(
         ctx.obj["root_path"],
         set_farmer_peer,

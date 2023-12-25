@@ -1,5 +1,9 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import List, Optional
+
+from typing_extensions import Protocol
 
 from stai.consensus.constants import ConsensusConstants
 from stai.consensus.pot_iterations import calculate_ip_iters, calculate_sp_iters
@@ -9,6 +13,32 @@ from stai.types.blockchain_format.sized_bytes import bytes32
 from stai.types.blockchain_format.sub_epoch_summary import SubEpochSummary
 from stai.util.ints import uint8, uint32, uint64, uint128
 from stai.util.streamable import Streamable, streamable
+
+
+class BlockRecordProtocol(Protocol):
+    @property
+    def header_hash(self) -> bytes32:
+        ...
+
+    @property
+    def height(self) -> uint32:
+        ...
+
+    @property
+    def timestamp(self) -> Optional[uint64]:
+        ...
+
+    @property
+    def prev_transaction_block_height(self) -> uint32:
+        ...
+
+    @property
+    def prev_transaction_block_hash(self) -> Optional[bytes32]:
+        ...
+
+    @property
+    def is_transaction_block(self) -> bool:
+        return self.timestamp is not None
 
 
 @streamable
@@ -35,7 +65,6 @@ class BlockRecord(Streamable):
     sub_slot_iters: uint64  # Current network sub_slot_iters parameter
     pool_puzzle_hash: bytes32  # Need to keep track of these because Coins are created in a future block
     farmer_puzzle_hash: bytes32
-    officialwallets_puzzle_hash: bytes32
     required_iters: uint64  # The number of iters required for this proof of space
     deficit: uint8  # A deficit of 16 is an overflow block after an infusion. Deficit of 15 is a challenge block
     overflow: bool

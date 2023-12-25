@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 from typing import Any
 
 from stai.plot_sync.util import ErrorCodes, State
 from stai.protocols.harvester_protocol import PlotSyncIdentifier
-from stai.server.ws_connection import NodeType
+from stai.server.outbound_message import NodeType
 from stai.util.ints import uint64
 
 

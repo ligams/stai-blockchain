@@ -3,5 +3,5 @@
 
 set -e
 
-ln -s /usr/lib/stai-blockchain/resources/app.asar.unpacked/daemon/stai /usr/bin/stai || true
-ln -s /usr/lib/stai-blockchain/resources/app.asar.unpacked/daemon /opt/stai || true
+ln -s /opt/stai/resources/app.asar.unpacked/daemon/stai /usr/bin/stai || true
+ln -s /opt/stai/stai-blockchain /usr/bin/stai-blockchain || true

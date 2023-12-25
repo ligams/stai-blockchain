@@ -1,42 +1,60 @@
-from stai.types.blockchain_format.sized_bytes import bytes32
-from stai.types.blockchain_format.program import Program
-from typing import List, Optional, Tuple, Iterator, Dict
-from blspy import G1Element
+from __future__ import annotations
+
+from typing import Dict, Iterator, List, Optional, Tuple, Union
+
+from chia_rs import G1Element
+
 from stai.types.blockchain_format.coin import Coin
-from stai.types.coin_spend import CoinSpend
-from stai.util.ints import uint64
-from stai.wallet.puzzles.load_clvm import load_clvm
+from stai.types.blockchain_format.program import Program
+from stai.types.blockchain_format.sized_bytes import bytes32
+from stai.types.coin_spend import CoinSpend, make_spend
 from stai.types.condition_opcodes import ConditionOpcode
+from stai.util.ints import uint64
+from stai.wallet.puzzles.load_clvm import load_clvm_maybe_recompile
+from stai.wallet.singleton import (
+    SINGLETON_LAUNCHER_PUZZLE_HASH,
+    SINGLETON_TOP_LAYER_MOD,
+    SINGLETON_TOP_LAYER_MOD_HASH,
+    is_singleton,
+)
+from stai.wallet.util.curry_and_treehash import calculate_hash_of_quoted_mod_hash, curry_and_treehash
 
-
-SINGLETON_TOP_LAYER_MOD = load_clvm("singleton_top_layer_v1_1.clvm")
-LAUNCHER_PUZZLE = load_clvm("singleton_launcher.clvm")
-DID_INNERPUZ_MOD = load_clvm("did_innerpuz.clvm")
-SINGLETON_LAUNCHER = load_clvm("singleton_launcher.clvm")
-SINGLETON_MOD_HASH = SINGLETON_TOP_LAYER_MOD.get_tree_hash()
-LAUNCHER_PUZZLE_HASH = SINGLETON_LAUNCHER.get_tree_hash()
+DID_INNERPUZ_MOD = load_clvm_maybe_recompile(
+    "did_innerpuz.clsp", package_or_requirement="stai.wallet.did_wallet.puzzles"
+)
 DID_INNERPUZ_MOD_HASH = DID_INNERPUZ_MOD.get_tree_hash()
+INTERMEDIATE_LAUNCHER_MOD = load_clvm_maybe_recompile(
+    "nft_intermediate_launcher.clsp", package_or_requirement="stai.wallet.nft_wallet.puzzles"
+)
 
 
 def create_innerpuz(
-    p2_puzzle: Program,
+    p2_puzzle_or_hash: Union[Program, bytes32],
     recovery_list: List[bytes32],
     num_of_backup_ids_needed: uint64,
     launcher_id: bytes32,
     metadata: Program = Program.to([]),
+    recovery_list_hash: Optional[bytes32] = None,
 ) -> Program:
     """
     Create DID inner puzzle
-    :param p2_puzzle: Standard P2 puzzle
+    :param p2_puzzle_or_hash: Standard P2 puzzle or hash
     :param recovery_list: A list of DIDs used for the recovery
     :param num_of_backup_ids_needed: Need how many DIDs for the recovery
     :param launcher_id: ID of the launch coin
     :param metadata: DID customized metadata
+    :param recovery_list_hash: Recovery list hash
     :return: DID inner puzzle
+    Note: Receiving a standard P2 puzzle hash wouldn't calculate a valid puzzle, but
+    that can be useful if calling `.get_tree_hash_precalc()` on it.
     """
     backup_ids_hash = Program(Program.to(recovery_list)).get_tree_hash()
-    singleton_struct = Program.to((SINGLETON_MOD_HASH, (launcher_id, LAUNCHER_PUZZLE_HASH)))
-    return DID_INNERPUZ_MOD.curry(p2_puzzle, backup_ids_hash, num_of_backup_ids_needed, singleton_struct, metadata)
+    if recovery_list_hash is not None:
+        backup_ids_hash = recovery_list_hash
+    singleton_struct = Program.to((SINGLETON_TOP_LAYER_MOD_HASH, (launcher_id, SINGLETON_LAUNCHER_PUZZLE_HASH)))
+    return DID_INNERPUZ_MOD.curry(
+        p2_puzzle_or_hash, backup_ids_hash, num_of_backup_ids_needed, singleton_struct, metadata
+    )
 
 
 def get_inner_puzhash_by_p2(
@@ -55,24 +73,20 @@ def get_inner_puzhash_by_p2(
     :param metadata: DID customized metadata
     :return: DID inner puzzle hash
     """
+
     backup_ids_hash = Program(Program.to(recovery_list)).get_tree_hash()
-    singleton_struct = Program.to((SINGLETON_MOD_HASH, (launcher_id, LAUNCHER_PUZZLE_HASH)))
-    return DID_INNERPUZ_MOD.curry(
-        p2_puzhash, backup_ids_hash, num_of_backup_ids_needed, singleton_struct, metadata
-    ).get_tree_hash(p2_puzhash)
+    singleton_struct = Program.to((SINGLETON_TOP_LAYER_MOD_HASH, (launcher_id, SINGLETON_LAUNCHER_PUZZLE_HASH)))
 
+    quoted_mod_hash = calculate_hash_of_quoted_mod_hash(DID_INNERPUZ_MOD_HASH)
 
-def create_fullpuz(innerpuz: Program, launcher_id: bytes32) -> Program:
-    """
-    Create a full puzzle of DID
-    :param innerpuz: DID inner puzzle
-    :param launcher_id:
-    :return: DID full puzzle
-    """
-    mod_hash = SINGLETON_TOP_LAYER_MOD.get_tree_hash()
-    # singleton_struct = (MOD_HASH . (LAUNCHER_ID . LAUNCHER_PUZZLE_HASH))
-    singleton_struct = Program.to((mod_hash, (launcher_id, LAUNCHER_PUZZLE.get_tree_hash())))
-    return SINGLETON_TOP_LAYER_MOD.curry(singleton_struct, innerpuz)
+    return curry_and_treehash(
+        quoted_mod_hash,
+        p2_puzhash,
+        Program.to(backup_ids_hash).get_tree_hash(),
+        Program.to(num_of_backup_ids_needed).get_tree_hash(),
+        Program.to(singleton_struct).get_tree_hash(),
+        metadata.get_tree_hash(),
+    )
 
 
 def is_did_innerpuz(inner_f: Program) -> bool:
@@ -82,15 +96,6 @@ def is_did_innerpuz(inner_f: Program) -> bool:
     :return: Boolean
     """
     return inner_f == DID_INNERPUZ_MOD
-
-
-def is_did_core(inner_f: Program) -> bool:
-    """
-    Check if a puzzle is a singleton mod
-    :param inner_f: puzzle
-    :return: Boolean
-    """
-    return inner_f == SINGLETON_TOP_LAYER_MOD
 
 
 def uncurry_innerpuz(puzzle: Program) -> Optional[Tuple[Program, Program, Program, Program, Program]]:
@@ -108,22 +113,6 @@ def uncurry_innerpuz(puzzle: Program) -> Optional[Tuple[Program, Program, Progra
 
     p2_puzzle, id_list, num_of_backup_ids_needed, singleton_struct, metadata = list(args.as_iter())
     return p2_puzzle, id_list, num_of_backup_ids_needed, singleton_struct, metadata
-
-
-def get_innerpuzzle_from_puzzle(puzzle: Program) -> Optional[Program]:
-    """
-    Extract the inner puzzle of a singleton
-    :param puzzle: Singleton puzzle
-    :return: Inner puzzle
-    """
-    r = puzzle.uncurry()
-    if r is None:
-        return None
-    inner_f, args = r
-    if not is_did_core(inner_f):
-        return None
-    SINGLETON_STRUCT, INNER_PUZZLE = list(args.as_iter())
-    return INNER_PUZZLE
 
 
 def create_recovery_message_puzzle(recovering_coin_id: bytes32, newpuz: bytes32, pubkey: G1Element) -> Program:
@@ -159,28 +148,25 @@ def create_spend_for_message(
     puzzle = create_recovery_message_puzzle(recovering_coin, newpuz, pubkey)
     coin = Coin(parent_of_message, puzzle.get_tree_hash(), uint64(0))
     solution = Program.to([])
-    coinsol = CoinSpend(coin, puzzle, solution)
-    return coinsol
+    return make_spend(coin, puzzle, solution)
 
 
-def match_did_puzzle(puzzle: Program) -> Tuple[bool, Iterator[Program]]:
+def match_did_puzzle(mod: Program, curried_args: Program) -> Optional[Iterator[Program]]:
     """
         Given a puzzle test if it's a DID, if it is, return the curried arguments
     :param puzzle: Puzzle
     :return: Curried parameters
     """
     try:
-        mod, curried_args = puzzle.uncurry()
         if mod == SINGLETON_TOP_LAYER_MOD:
             mod, curried_args = curried_args.rest().first().uncurry()
             if mod == DID_INNERPUZ_MOD:
-                return True, curried_args.as_iter()
+                return curried_args.as_iter()
     except Exception:
         import traceback
 
         print(f"exception: {traceback.format_exc()}")
-        return False, iter(())
-    return False, iter(())
+    return None
 
 
 def check_is_did_puzzle(puzzle: Program) -> bool:
@@ -191,16 +177,16 @@ def check_is_did_puzzle(puzzle: Program) -> bool:
     """
     r = puzzle.uncurry()
     if r is None:
-        return r
+        return False
     inner_f, args = r
-    return is_did_core(inner_f)
+    return is_singleton(inner_f)
 
 
 def metadata_to_program(metadata: Dict) -> Program:
     """
-    Convert the metadata dict to a Chialisp program
+    Convert the metadata dict to a chialisp program
     :param metadata: User defined metadata
-    :return: Chialisp program
+    :return: chialisp program
     """
     kv_list = []
     for key, value in metadata.items():
@@ -208,10 +194,10 @@ def metadata_to_program(metadata: Dict) -> Program:
     return Program.to(kv_list)
 
 
-def program_to_metadata(program: Program) -> Dict:
+def did_program_to_metadata(program: Program) -> Dict:
     """
     Convert a program to a metadata dict
-    :param program: Chialisp program contains the metadata
+    :param program: chialisp program contains the metadata
     :return: Metadata dict
     """
     metadata = {}

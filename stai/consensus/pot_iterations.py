@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from stai.consensus.constants import ConsensusConstants
 from stai.consensus.pos_quality import _expected_plot_size
 from stai.types.blockchain_format.sized_bytes import bytes32

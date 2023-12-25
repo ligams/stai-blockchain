@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from stai.util.ints import uint32, uint64
 
 # 1 stai coin = 1,000,000,000 = 1 billion mojo.

@@ -4,4 +4,4 @@
 set -e
 
 unlink /usr/bin/stai || true
-unlink /opt/stai || true
+unlink /usr/bin/stai-blockchain || true

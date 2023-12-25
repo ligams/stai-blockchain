@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from stai.util.byte_types import SizedBytes
 
 
