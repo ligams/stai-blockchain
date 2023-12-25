@@ -14,7 +14,7 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, ClassVar, Dict, List, Optional, Set, Tuple, cast
 
-from STAIchiavdf import create_discriminant, prove
+from chiavdf import create_discriminant, prove
 
 from stai.consensus.constants import ConsensusConstants
 from stai.consensus.pot_iterations import calculate_sp_iters, is_overflow_block
@@ -159,7 +159,7 @@ class Timelord:
             self.main_loop = asyncio.create_task(self._manage_chains())
         else:
             if os.name == "nt" or slow_bluebox:
-                # `vdf_client` doesn't build on windows, use `prove()` from STAIchiavdf.
+                # `vdf_client` doesn't build on windows, use `prove()` from chiavdf.
                 workers = self.config.get("slow_bluebox_process_count", 1)
                 self.bluebox_pool = ProcessPoolExecutor(
                     max_workers=workers,

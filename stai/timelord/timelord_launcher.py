@@ -66,7 +66,7 @@ class VDFClientProcessMgr:
 
 
 def find_vdf_client() -> pathlib.Path:
-    p = pathlib.Path(pkg_resources.get_distribution("STAIchiavdf").location) / "vdf_client"
+    p = pathlib.Path(pkg_resources.get_distribution("chiavdf").location) / "vdf_client"
     if p.is_file():
         return p
     raise FileNotFoundError("Cannot find vdf_client binary. Is Timelord installed? See install-timelord.sh")
