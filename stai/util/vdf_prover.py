@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Tuple
 
-from staivdf import prove
+from STAIchiavdf import prove
 
 from stai.consensus.constants import ConsensusConstants
 from stai.types.blockchain_format.classgroup import ClassgroupElement
