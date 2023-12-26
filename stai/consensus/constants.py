@@ -34,7 +34,8 @@ class ConsensusConstants:
     MIN_PLOT_SIZE: int
     MAX_PLOT_SIZE: int
     SUB_SLOT_TIME_TARGET: int  # The target number of seconds per sub-slot
-    NUM_SP_INTERVALS_EXTRA: int  # The difference between signage point and infusion point (plus required_iters)
+    NUM_SP_INTERVALS_EXTRA: int
+    MAX_FUTURE_TIME2: int  # The difference between signage point and infusion point (plus required_iters)
     MAX_FUTURE_TIME: int  # The next block can have a timestamp of at most these many seconds more
     NUMBER_OF_TIMESTAMPS: int  # Than the average of the last NUMBER_OF_TIMESTAMPS blocks
     # Used as the initial cc rc challenges, as well as first block back pointers, and first SES back pointer
