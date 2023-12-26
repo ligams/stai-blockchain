@@ -103,9 +103,6 @@ def calculate_prefix_bits(constants: ConsensusConstants, height: uint32) -> int:
         prefix_bits -= 3
     elif height >= constants.PLOT_FILTER_128_HEIGHT:
         prefix_bits -= 2
-    elif height >= constants.HARD_FORK_HEIGHT:
-        prefix_bits -= 1
-
     return max(0, prefix_bits)
 
 

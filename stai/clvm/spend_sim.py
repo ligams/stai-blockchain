@@ -68,7 +68,6 @@ class CostLogger:
             program,
             INFINITE_COST,
             mempool_mode=True,
-            height=DEFAULT_CONSTANTS.HARD_FORK_HEIGHT,
             constants=DEFAULT_CONSTANTS,
         )
         self.cost_dict[descriptor] = npc_result.cost

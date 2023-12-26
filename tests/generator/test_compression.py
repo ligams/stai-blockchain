@@ -179,7 +179,7 @@ class TestCompression:
 
         # test with backrefs (2.0 hard-fork)
         s = simple_solution_generator_backrefs(sb)
-        spend_info = get_puzzle_and_solution_for_coin(s, removal, test_constants.HARD_FORK_HEIGHT + 1, test_constants)
+        spend_info = get_puzzle_and_solution_for_coin(s, removal, 1, test_constants)
         assert Program.from_bytes(bytes(spend_info.puzzle)) == Program.from_bytes(
             bytes(sb.coin_spends[0].puzzle_reveal)
         )

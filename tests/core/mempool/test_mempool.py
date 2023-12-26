@@ -2023,11 +2023,6 @@ class TestGeneratorConditions:
             mempool_mode=mempool,
             height=softfork_height,
         )
-
-        # with the 2.0 hard fork, division with negative numbers is allowed
-        if operand < 0 and softfork_height >= test_constants.HARD_FORK_HEIGHT:
-            expected = None
-
         assert npc_result.error == expected
 
     def test_invalid_condition_list_terminator(self, softfork_height):
@@ -2167,7 +2162,7 @@ class TestGeneratorConditions:
         else:
             generator_base_cost = 20512
 
-        if softfork_height < test_constants.HARD_FORK_HEIGHT and condition in [
+        if condition in [
             ConditionOpcode.AGG_SIG_PARENT,
             ConditionOpcode.AGG_SIG_PUZZLE,
             ConditionOpcode.AGG_SIG_AMOUNT,
@@ -2228,7 +2223,7 @@ class TestGeneratorConditions:
             ConditionOpcode.AGG_SIG_PARENT_PUZZLE,
         ]
 
-        hard_fork_activated = softfork_height >= test_constants.HARD_FORK_HEIGHT
+        hard_fork_activated = False
 
         expected_error = None
 
@@ -2361,11 +2356,7 @@ class TestGeneratorConditions:
         # in mempool all unknown conditions are always a failure
         if mempool:
             expect_error = Err.INVALID_CONDITION.value
-        # the SOFTFORK condition is only activated with the hard fork, so
-        # before then there are no errors
-        elif softfork_height < test_constants.HARD_FORK_HEIGHT:
-            expect_error = None
-
+        expect_error = None
         assert npc_result.error == expect_error
 
 

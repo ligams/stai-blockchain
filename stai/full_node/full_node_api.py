@@ -773,22 +773,16 @@ class FullNodeAPI:
                         removals = spend_bundle.removals()
                         self.full_node.log.info(f"Add rem: {len(additions)} {len(removals)}")
                         aggregate_signature = spend_bundle.aggregated_signature
-                        # when the hard fork activates, block generators are
-                        # allowed to be serialized with the improved CLVM
-                        # serialization format, supporting back-references
-                        if peak.height >= self.full_node.constants.HARD_FORK_HEIGHT:
-                            block_generator = simple_solution_generator_backrefs(spend_bundle)
+                        if self.full_node.full_node_store.previous_generator is not None:
+                            self.log.info(
+                                f"Using previous generator for height "
+                                f"{self.full_node.full_node_store.previous_generator}"
+                            )
+                            block_generator = best_solution_generator_from_template(
+                                self.full_node.full_node_store.previous_generator, spend_bundle
+                            )
                         else:
-                            if self.full_node.full_node_store.previous_generator is not None:
-                                self.log.info(
-                                    f"Using previous generator for height "
-                                    f"{self.full_node.full_node_store.previous_generator}"
-                                )
-                                block_generator = best_solution_generator_from_template(
-                                    self.full_node.full_node_store.previous_generator, spend_bundle
-                                )
-                            else:
-                                block_generator = simple_solution_generator(spend_bundle)
+                            block_generator = simple_solution_generator(spend_bundle)
 
             def get_plot_sig(to_sign: bytes32, _extra: G1Element) -> G2Element:
                 if to_sign == request.challenge_chain_sp:

@@ -128,10 +128,7 @@ class TestROM:
         npc_result = get_name_puzzle_conditions(
             gen, max_cost=MAX_COST, mempool_mode=False, height=uint32(softfork_height), constants=DEFAULT_CONSTANTS
         )
-        if softfork_height >= DEFAULT_CONSTANTS.HARD_FORK_HEIGHT:
-            cost = EXPECTED_COST2
-        else:
-            cost = EXPECTED_COST1
+        cost = EXPECTED_COST1
         assert npc_result.error is None
         assert npc_result.cost == cost + ConditionCost.CREATE_COIN.value + (len(bytes(gen.program)) * COST_PER_BYTE)
         assert npc_result.conds is not None

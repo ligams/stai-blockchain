@@ -38,36 +38,8 @@ DESERIALIZE_MOD = load_serialized_clvm_maybe_recompile(
 log = logging.getLogger(__name__)
 
 
-def get_flags_for_height_and_constants(height: int, constants: ConsensusConstants) -> int:
+def get_flags_for_height_and_constants(constants: ConsensusConstants) -> int:
     flags = 0
-
-    if height >= constants.SOFT_FORK2_HEIGHT:
-        flags = flags | NO_RELATIVE_CONDITIONS_ON_EPHEMERAL
-
-    if height >= constants.HARD_FORK_HEIGHT:
-        # the hard-fork initiated with 2.0. To activate June 2024
-        # * costs are ascribed to some unknown condition codes, to allow for
-        #    soft-forking in new conditions with cost
-        # * a new condition, SOFTFORK, is added which takes a first parameter to
-        #   specify its cost. This allows soft-forks similar to the softfork
-        #   operator
-        # * BLS operators introduced in the soft-fork (behind the softfork
-        #   guard) are made available outside of the guard.
-        # * division with negative numbers are allowed, and round toward
-        #   negative infinity
-        # * AGG_SIG_* conditions are allowed to have unknown additional
-        #   arguments
-        # * Allow the block generator to be serialized with the improved clvm
-        #   serialization format (with back-references)
-        flags = (
-            flags
-            | ENABLE_SOFTFORK_CONDITION
-            | ENABLE_BLS_OPS_OUTSIDE_GUARD
-            | ENABLE_FIXED_DIV
-            | AGG_SIG_ARGS
-            | ALLOW_BACKREFS
-        )
-
     return flags
 
 
@@ -76,17 +48,13 @@ def get_name_puzzle_conditions(
     max_cost: int,
     *,
     mempool_mode: bool,
-    height: uint32,
     constants: ConsensusConstants,
 ) -> NPCResult:
     run_block = run_block_generator
-    flags = get_flags_for_height_and_constants(height, constants)
+    flags = get_flags_for_height_and_constants(constants)
 
     if mempool_mode:
         flags = flags | MEMPOOL_MODE
-
-    if height >= constants.HARD_FORK_FIX_HEIGHT:
-        run_block = run_block_generator2
 
     try:
         block_args = [bytes(gen) for gen in generator.generator_refs]

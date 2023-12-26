@@ -43,14 +43,4 @@ def test_compute_block_cost(softfork_height: uint32) -> None:
     cost -= len(bytes(generator.program)) * DEFAULT_CONSTANTS.COST_PER_BYTE
 
     print(f"{cost=}")
-
-    # the cost is a non-trivial combination of the CLVM cost of running the puzzles
-    # and before the hard-fork, combined with the cost of running the generator ROM
-    # Consensus requires these costs to be unchanged over time, so this test
-    # ensures compatibility
-    if softfork_height >= DEFAULT_CONSTANTS.HARD_FORK_HEIGHT:
-        expected = 180980
-    else:
-        expected = 3936699
-
     assert cost == expected

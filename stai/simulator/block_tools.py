@@ -151,10 +151,6 @@ test_constants = dataclasses.replace(
     # Allows creating blockchains with timestamps up to 10 days in the future, for testing
     MAX_FUTURE_TIME2=3600 * 24 * 10,
     MEMPOOL_BLOCK_BUFFER=6,
-    # we deliberately make this different from HARD_FORK_HEIGHT in the
-    # tests, to ensure they operate independently (which they need to do for
-    # testnet10)
-    HARD_FORK_FIX_HEIGHT=uint32(5496100),
 )
 
 
@@ -798,20 +794,16 @@ class BlockTools:
 
                         block_generator: Optional[BlockGenerator]
                         if transaction_data is not None:
-                            if start_height >= constants.HARD_FORK_HEIGHT:
-                                block_generator = simple_solution_generator_backrefs(transaction_data)
-                                previous_generator = None
+                            if type(previous_generator) is CompressorArg:
+                                block_generator = best_solution_generator_from_template(
+                                    previous_generator, transaction_data
+                                )
                             else:
-                                if type(previous_generator) is CompressorArg:
-                                    block_generator = best_solution_generator_from_template(
-                                        previous_generator, transaction_data
+                                block_generator = simple_solution_generator(transaction_data)
+                                if type(previous_generator) is list:
+                                    block_generator = BlockGenerator(
+                                        block_generator.program, [], previous_generator
                                     )
-                                else:
-                                    block_generator = simple_solution_generator(transaction_data)
-                                    if type(previous_generator) is list:
-                                        block_generator = BlockGenerator(
-                                            block_generator.program, [], previous_generator
-                                        )
 
                             aggregate_signature = transaction_data.aggregated_signature
                         else:
@@ -1123,20 +1115,16 @@ class BlockTools:
                             else:
                                 pool_target = PoolTarget(self.pool_ph, uint32(0))
                         if transaction_data is not None:
-                            if start_height >= constants.HARD_FORK_HEIGHT:
-                                block_generator = simple_solution_generator_backrefs(transaction_data)
-                                previous_generator = None
+                            if previous_generator is not None and type(previous_generator) is CompressorArg:
+                                block_generator = best_solution_generator_from_template(
+                                    previous_generator, transaction_data
+                                )
                             else:
-                                if previous_generator is not None and type(previous_generator) is CompressorArg:
-                                    block_generator = best_solution_generator_from_template(
-                                        previous_generator, transaction_data
+                                block_generator = simple_solution_generator(transaction_data)
+                                if type(previous_generator) is list:
+                                    block_generator = BlockGenerator(
+                                        block_generator.program, [], previous_generator
                                     )
-                                else:
-                                    block_generator = simple_solution_generator(transaction_data)
-                                    if type(previous_generator) is list:
-                                        block_generator = BlockGenerator(
-                                            block_generator.program, [], previous_generator
-                                        )
                             aggregate_signature = transaction_data.aggregated_signature
                         else:
                             block_generator = None
@@ -1926,22 +1914,6 @@ def conditions_cost(conds: Program, hard_fork: bool) -> uint64:
             condition_cost += ConditionCost.AGG_SIG.value
         elif condition == ConditionOpcode.CREATE_COIN:
             condition_cost += ConditionCost.CREATE_COIN.value
-        # after the 2.0 hard fork, two byte conditions (with no leading 0)
-        # have costs. Account for that.
-        elif hard_fork and len(condition) == 2 and condition[0] != 0:
-            condition_cost += CONDITION_COSTS[condition[1]]
-        elif hard_fork and condition == ConditionOpcode.SOFTFORK.value:
-            arg = cond.rest().first().as_int()
-            condition_cost += arg * 10000
-        elif hard_fork and condition in [
-            ConditionOpcode.AGG_SIG_PARENT,
-            ConditionOpcode.AGG_SIG_PUZZLE,
-            ConditionOpcode.AGG_SIG_AMOUNT,
-            ConditionOpcode.AGG_SIG_PUZZLE_AMOUNT,
-            ConditionOpcode.AGG_SIG_PARENT_AMOUNT,
-            ConditionOpcode.AGG_SIG_PARENT_PUZZLE,
-        ]:
-            condition_cost += ConditionCost.AGG_SIG.value
     return uint64(condition_cost)
 
 
@@ -1969,30 +1941,14 @@ def compute_cost_test(generator: BlockGenerator, constants: ConsensusConstants, 
     condition_cost = 0
     clvm_cost = 0
 
-    if height >= constants.HARD_FORK_FIX_HEIGHT:
-        blocks = [bytes(g) for g in generator.generator_refs]
-        cost, result = generator.program._run(INFINITE_COST, MEMPOOL_MODE | ALLOW_BACKREFS, [DESERIALIZE_MOD, blocks])
-        clvm_cost += cost
+    block_program_args = SerializedProgram.to([[bytes(g) for g in generator.generator_refs]])
+    clvm_cost, result = GENERATOR_MOD._run(INFINITE_COST, MEMPOOL_MODE, [generator.program, block_program_args])
 
-        for spend in result.first().as_iter():
-            # each spend is a list of:
-            # (parent-coin-id puzzle amount solution)
-            puzzle = spend.at("rf")
-            solution = spend.at("rrrf")
-
-            cost, result = puzzle._run(INFINITE_COST, MEMPOOL_MODE, solution)
-            clvm_cost += cost
-            condition_cost += conditions_cost(result, height >= constants.HARD_FORK_HEIGHT)
-
-    else:
-        block_program_args = SerializedProgram.to([[bytes(g) for g in generator.generator_refs]])
-        clvm_cost, result = GENERATOR_MOD._run(INFINITE_COST, MEMPOOL_MODE, [generator.program, block_program_args])
-
-        for res in result.first().as_iter():
-            # each condition item is:
-            # (parent-coin-id puzzle-hash amount conditions)
-            conditions = res.at("rrrf")
-            condition_cost += conditions_cost(conditions, height >= constants.HARD_FORK_HEIGHT)
+    for res in result.first().as_iter():
+        # each condition item is:
+        # (parent-coin-id puzzle-hash amount conditions)
+        conditions = res.at("rrrf")
+        condition_cost += conditions_cost(conditions, False)
 
     size_cost = len(bytes(generator.program)) * constants.COST_PER_BYTE
 
