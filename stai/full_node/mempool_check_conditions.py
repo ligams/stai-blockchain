@@ -32,7 +32,7 @@ from stai.util.ints import uint16, uint32, uint64
 from stai.wallet.puzzles.load_clvm import load_serialized_clvm_maybe_recompile
 
 DESERIALIZE_MOD = load_serialized_clvm_maybe_recompile(
-    "stailisp_deserialisation.clsp", package_or_requirement="stai.consensus.puzzles"
+    "chialisp_deserialisation.clsp", package_or_requirement="stai.consensus.puzzles"
 )
 
 log = logging.getLogger(__name__)
